@@ -1,0 +1,69 @@
+{
+  "schema_version": "prompt-manifest/1.0",
+  "contract_version": "agent-prompt/2.0",
+  "prompts": [
+    {
+      "prompt_id": "hypothesis",
+      "version": "2.3.0",
+      "role": "hypothesis",
+      "template_file": "hypothesis.yaml",
+      "input_schema": "hypothesis-prompt-view/2.0",
+      "output_schema": "hypothesis-draft/1.0",
+      "max_output_tokens": 12000
+    },
+    {
+      "prompt_id": "factor_design",
+      "version": "2.2.0",
+      "role": "factor_design",
+      "template_file": "factor_design.yaml",
+      "input_schema": "factor-design-generation-request/1.1",
+      "output_schema": "factor-design-draft-batch/1.0",
+      "max_output_tokens": 12000
+    },
+    {
+      "prompt_id": "mcts_factor_design",
+      "version": "2.3.0",
+      "role": "factor_design",
+      "template_file": "mcts_factor_design.yaml",
+      "input_schema": "factor-design-generation-request/1.1",
+      "output_schema": "factor-design-draft-batch/1.0",
+      "max_output_tokens": 12000
+    },
+    {
+      "prompt_id": "graph_factor_design",
+      "version": "2.2.0",
+      "role": "factor_design",
+      "template_file": "graph_factor_design.yaml",
+      "input_schema": "factor-design-generation-request/1.1",
+      "output_schema": "factor-design-draft-batch/1.0",
+      "max_output_tokens": 20000
+    },
+    {
+      "prompt_id": "factor_expression",
+      "version": "2.1.0",
+      "role": "factor_expression",
+      "template_file": "factor_expression.yaml",
+      "input_schema": "factor-expression-request/1.0",
+      "output_schema": "factor-expression-draft/1.0",
+      "max_output_tokens": 12000
+    },
+    {
+      "prompt_id": "expression_repair",
+      "version": "2.1.0",
+      "role": "expression_repair",
+      "template_file": "expression_repair.yaml",
+      "input_schema": "expression-repair-request/1.0",
+      "output_schema": "factor-expression-draft/1.0",
+      "max_output_tokens": 12000
+    },
+    {
+      "prompt_id": "feedback",
+      "version": "2.1.0",
+      "role": "feedback",
+      "template_file": "feedback.yaml",
+      "input_schema": "feedback-prompt-view/1.0",
+      "output_schema": "feedback-draft/2.1",
+      "max_output_tokens": 12000
+    }
+  ]
+}

@@ -1,0 +1,168 @@
+schema_version = "experiment-config/1.6"
+
+[architecture]
+name = "chain"
+directions = []
+
+[data]
+provider = "qlib"
+dataset_version = "qlib-cn-market-v2"
+price_adjustment = "post_adjusted"
+start_date = "2010-04-01"
+end_date = "2019-05-31"
+warmup_start_date = "2010-01-04"
+market = "cn"
+frequency = "1d"
+trading_calendar_version = "qlib-cn-market-v2-calendar"
+
+[universe]
+name = "csi300"
+new_stock_min_age_years = 1
+
+[returns]
+single_factor = "close_t1_over_close_t"
+suspension_compression = "clip_10_percent"
+horizon_days = 1
+
+[preprocessing]
+protocol = "gplearn_neutralized_v1"
+missing_policy = "field_specific"
+rolling_min_fraction = 0.6666666667
+industry_field = "industry_id"
+continuous_exposures = ["log_mkt_cap", "ret20", "turn20", "vol20"]
+mad_multiplier = 5.0
+rolling_std_ddof = 1
+
+[operators]
+operator_set = "OPERATOR_SET_BASE"
+registry_version = "operator-registry/1.0"
+allowed_windows = [5, 10, 20]
+
+[factor_generation]
+max_proposals = 2
+max_expression_depth = 15
+max_validation_repair_attempts = 2
+duplicate_policy = "reject_existing_expression"
+
+[evaluation]
+protocol = "rankic_neutralized_v1"
+metrics = ["rank_ic_mean", "rank_ic_ir", "rank_ic_std", "top20_mean_return"]
+min_effective_sample_count = 100
+min_cross_section_samples = 100
+acceptance_metric = "rank_ic_mean"
+acceptance_threshold = 0.02
+acceptance_use_absolute_value = true
+min_daily_effective_stock_ratio = 0.8
+min_effective_date_ratio = 0.8
+
+[workflow]
+# Number of serial research cycles.
+max_cycles = 1
+max_retries = 1
+
+[prompts]
+manifest = "builtin:v2"
+max_input_tokens = 32000
+max_history_items = 4
+max_proposals_per_call = 2
+max_format_retries = 2
+
+[llm]
+provider = "openai-compatible"
+model_alias = "deepseek-flash"
+base_url = "https://api.deepseek.com"
+base_url_env = "COSMOSALPHA_LLM_BASE_URL"
+organization = "unused"
+api_key = "unused"
+api_key_env = "COSMOSALPHA_LLM_API_KEY"
+timeout_seconds = 60
+temperature = 0.0
+max_output_tokens = 12000
+max_timeout_retries = 2
+max_rate_limit_retries = 3
+max_server_retries = 2
+retry_initial_backoff_seconds = 2.0
+retry_max_backoff_seconds = 10.0
+replay_only = false
+
+[storage]
+backend = "local_sqlite"
+root = "runs"
+
+[runtime]
+max_workers = 1
+random_seed = 20260823
+
+[qlib]
+enabled = true
+region = "cn"
+instruments = []
+
+[qlib.market]
+provider_uri = "~/data/cn_data/qlib_bin"
+
+[[qlib.market.fields]]
+field_name = "open"
+expression = "$open"
+
+[[qlib.market.fields]]
+field_name = "high"
+expression = "$high"
+
+[[qlib.market.fields]]
+field_name = "low"
+expression = "$low"
+
+[[qlib.market.fields]]
+field_name = "close"
+expression = "$close"
+
+[[qlib.market.fields]]
+field_name = "volume"
+expression = "$volume"
+
+[[qlib.market.fields]]
+field_name = "vwap"
+expression = "$vwap"
+
+[[qlib.market.fields]]
+field_name = "turn"
+expression = "$turn"
+
+[[qlib.market.fields]]
+field_name = "free_turn"
+expression = "$free_turn"
+
+[[qlib.market.fields]]
+field_name = "returns"
+expression = "$returns"
+
+[qlib.exposure]
+provider_uri = "~/data/cn_data/qlib_exposure_bin"
+
+[[qlib.exposure.fields]]
+field_name = "industry_id"
+expression = "$industry_id"
+
+[[qlib.exposure.fields]]
+field_name = "log_mkt_cap"
+expression = "$log_mkt_cap"
+
+[qlib.mask]
+provider_uri = "~/data/cn_data/qlib_mask_bin"
+
+[[qlib.mask.fields]]
+field_name = "universe_mask"
+expression = "$universe_mask"
+
+[[qlib.mask.fields]]
+field_name = "eligible_mask"
+expression = "$eligible_mask"
+
+[[qlib.mask.fields]]
+field_name = "entry_tradable_mask"
+expression = "$entry_tradable_mask"
+
+[[qlib.mask.fields]]
+field_name = "exit_tradable_mask"
+expression = "$exit_tradable_mask"

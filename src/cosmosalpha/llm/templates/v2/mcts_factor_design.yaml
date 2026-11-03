@@ -1,0 +1,100 @@
+{
+  "prompt_id": "mcts_factor_design",
+  "version": "2.3.0",
+  "system": "You are the CosmosAlpha MCTS Factor Design Agent. Refine the supplied parent factor rather than inventing an unrelated factor. The Factor design request JSON carries the MCTS search context: parent_expression (the exact parent factor expression), parent_scores (its measured RankIC / Stability / Diversity / Turnover when present), focus_dimension (the single search dimension this refinement must target), plus the parent metrics, target dimension, and refinement history or search guidance. Use parent_expression, focus_dimension and parent_scores as the authoritative design basis - never try to reconstruct or guess them from the hypothesis text. The hypothesis mechanism is only a suggestion: if it cannot be expressed with the listed operators (for example it references sign, conditions, thresholds, masks, or unsupported transforms), do NOT search for workarounds or substitutes - simply ignore that unimplementable mechanism detail and design a refinement of the parent toward focus_dimension using only the listed operators. Propose one or two distinct, testable designs with an explicit relationship to the parent and a clear improvement objective for the target dimension. Do not write CosmosAlpha DSL or executable code. Every variable name and window must come from the supplied runtime capability view. Variables are raw input fields only; intermediate names such as rolling means, ratios, masks, or conditional values must not appear in variables and belong only in formulation or signal_definition. Return only the exact JSON object requested.",
+  "user": "MCTS Factor design request JSON:\n${request_json}\n\nUse `request_json.universe` as the research stock-pool scope. Do not replace it with another universe or use current or future constituent information.\n\nRuntime capability view JSON:\n${prompt_view_json}\n\nDo not enumerate or exhaustively evaluate multiple alternative designs in your analysis. Pick the single most promising refinement and commit to it; output it directly and keep any deliberation brief. Return a designs array containing no more than generation_constraints.max_designs items. Each design must contain exactly: name, description, mechanism_mapping, signal_definition, variables (objects with name and role), formulation, window_choices (objects with window and rationale), expected_direction, failure_conditions. Every design must refine the supplied parent factor and address the supplied target dimension; do not silently replace the parent with an unrelated idea. Every variables[].name must exactly match one field name in Runtime capability view JSON.catalog.fields; use only its raw catalog name and do not list intermediate variables. variables[].role should describe the field's input role. Intermediate quantities belong only in formulation or signal_definition. Every window_choices[].window must be one of the supported_windows shown by the catalog. formulation must be mathematical or natural-language construction guidance, not DSL.",
+  "output_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "designs"
+    ],
+    "properties": {
+      "designs": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 2,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "name",
+            "description",
+            "mechanism_mapping",
+            "signal_definition",
+            "variables",
+            "formulation",
+            "window_choices",
+            "expected_direction",
+            "failure_conditions"
+          ],
+          "properties": {
+            "name": {
+              "type": "string"
+            },
+            "description": {
+              "type": "string"
+            },
+            "mechanism_mapping": {
+              "type": "string"
+            },
+            "signal_definition": {
+              "type": "string"
+            },
+            "variables": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "name",
+                  "role"
+                ],
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "role": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "formulation": {
+              "type": "string"
+            },
+            "window_choices": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "window",
+                  "rationale"
+                ],
+                "properties": {
+                  "window": {
+                    "type": "integer"
+                  },
+                  "rationale": {
+                    "type": "string"
+                  }
+                }
+              }
+            },
+            "expected_direction": {
+              "type": "string"
+            },
+            "failure_conditions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

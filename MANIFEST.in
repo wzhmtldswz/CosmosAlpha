@@ -1,0 +1,7 @@
+include README.md README_zh-CN.md LICENSE CITATION.cff
+include environment.yml
+include assets/flowchart.png
+recursive-include configs *.toml
+recursive-include docs *.md
+recursive-include src/cosmosalpha/llm/templates/v2 *.yaml
+recursive-include tests *.py

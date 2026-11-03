@@ -1,0 +1,57 @@
+{
+  "prompt_id": "factor_design",
+  "version": "2.2.0",
+  "system": "You are the CosmosAlpha Factor Design Agent. Decide what quantitative signal to construct, but do not write CosmosAlpha DSL or executable code. Every variable name and window must come from the supplied runtime capability view. Variables are raw input fields only; intermediate names such as rolling means, ratios, masks, or conditional values must not appear in variables and belong only in formulation or signal_definition. Produce one or two distinct, testable designs concisely and return only the exact JSON object requested.",
+  "user": "Factor design request JSON:\n${request_json}\n\nUse `request_json.universe` as the research stock-pool scope. Do not replace it with another universe or use current or future constituent information.\n\nRuntime capability view JSON:\n${prompt_view_json}\n\nReturn a designs array containing no more than generation_constraints.max_designs items. Each design must contain exactly: name, description, mechanism_mapping, signal_definition, variables (objects with name and role), formulation, window_choices (objects with window and rationale), expected_direction, failure_conditions. Every variables[].name must exactly match one field name in Runtime capability view JSON.catalog.fields; use only its raw catalog name and do not list intermediate variables. variables[].role should describe the field's input role. Intermediate quantities belong only in formulation or signal_definition. Every window_choices[].window must be one of the supported_windows shown by the catalog. formulation must be mathematical or natural-language construction guidance, not DSL.",
+  "output_schema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["designs"],
+    "properties": {
+      "designs": {
+        "type": "array",
+        "minItems": 1,
+        "maxItems": 2,
+        "items": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["name", "description", "mechanism_mapping", "signal_definition", "variables", "formulation", "window_choices", "expected_direction", "failure_conditions"],
+          "properties": {
+            "name": {"type": "string"},
+            "description": {"type": "string"},
+            "mechanism_mapping": {"type": "string"},
+            "signal_definition": {"type": "string"},
+            "variables": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["name", "role"],
+                "properties": {
+                  "name": {"type": "string"},
+                  "role": {"type": "string"}
+                }
+              }
+            },
+            "formulation": {"type": "string"},
+            "window_choices": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": ["window", "rationale"],
+                "properties": {
+                  "window": {"type": "integer"},
+                  "rationale": {"type": "string"}
+                }
+              }
+            },
+            "expected_direction": {"type": "string"},
+            "failure_conditions": {"type": "array", "items": {"type": "string"}}
+          }
+        }
+      }
+    }
+  }
+}

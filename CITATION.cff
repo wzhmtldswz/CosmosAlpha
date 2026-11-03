@@ -1,0 +1,8 @@
+cff-version: 1.2.0
+message: "Please cite this software when using CosmosAlpha in research."
+type: software
+title: CosmosAlpha
+version: 0.1.0
+authors:
+  - name: CosmosAlpha contributors
+license: MIT
