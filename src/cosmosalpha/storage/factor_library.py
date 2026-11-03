@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
+from collections.abc import Iterator
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -152,7 +154,7 @@ class SqliteFactorLibrary:
         """Explicitly create the local factor-library schema."""
         path = Path(database_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(path, timeout=30.0) as connection:
+        with closing(sqlite3.connect(path, timeout=30.0)) as connection, connection:
             connection.execute("PRAGMA busy_timeout = 30000")
             connection.execute("PRAGMA journal_mode = WAL")
             version = int(connection.execute("PRAGMA user_version").fetchone()[0])
@@ -291,11 +293,16 @@ class SqliteFactorLibrary:
         if not all(self._artifacts.verify(ref) for ref in artifact_refs):
             raise FactorLibraryError("FACTOR_LIBRARY_ARTIFACT_REFERENCE_INVALID")
 
-    def _connection(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self._database_path, timeout=30.0)
-        connection.execute("PRAGMA busy_timeout = 30000")
-        connection.execute("PRAGMA foreign_keys = ON")
-        return connection
+        try:
+            with connection:
+                connection.execute("PRAGMA busy_timeout = 30000")
+                connection.execute("PRAGMA foreign_keys = ON")
+                yield connection
+        finally:
+            connection.close()
 
 
 def _validate_publication_inputs(

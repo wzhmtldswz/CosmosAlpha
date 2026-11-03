@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import sqlite3
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -318,7 +319,7 @@ class SqliteWorkflowMetadataRepository:
         """Explicitly create or migrate the local metadata schema."""
         path = Path(database_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        with sqlite3.connect(path, timeout=30.0) as connection:
+        with closing(sqlite3.connect(path, timeout=30.0)) as connection, connection:
             connection.execute("PRAGMA busy_timeout = 30000")
             connection.execute("PRAGMA journal_mode = WAL")
             connection.execute("PRAGMA foreign_keys = ON")
@@ -767,16 +768,25 @@ class SqliteWorkflowMetadataRepository:
             return False
         return True
 
-    def _connection(self) -> sqlite3.Connection:
+    @contextmanager
+    def _connection(self) -> Iterator[sqlite3.Connection]:
+        connection: sqlite3.Connection | None = None
         try:
             connection = sqlite3.connect(self._database_path, timeout=30.0)
             connection.execute("PRAGMA busy_timeout = 30000")
             connection.execute("PRAGMA foreign_keys = ON")
-            return connection
         except sqlite3.Error as error:
+            if connection is not None:
+                connection.close()
             raise RecoveryError(
                 f"workflow metadata database unavailable: {error}"
             ) from error
+        assert connection is not None
+        try:
+            with connection:
+                yield connection
+        finally:
+            connection.close()
 
 
 def _input_fingerprint(

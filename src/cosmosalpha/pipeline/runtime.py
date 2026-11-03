@@ -7,6 +7,7 @@ import multiprocessing
 import sqlite3
 from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, ProcessPoolExecutor, wait
+from contextlib import closing
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -293,7 +294,7 @@ def _read_graph_workflow_cycles(
     the existing workflow schema without changing that shared repository API.
     """
     try:
-        with sqlite3.connect(database_path, timeout=30.0) as connection:
+        with closing(sqlite3.connect(database_path, timeout=30.0)) as connection:
             connection.execute("PRAGMA busy_timeout = 30000")
             rows = connection.execute(
                 "SELECT payload FROM cycles WHERE run_id = ? ORDER BY cycle_id",
@@ -313,7 +314,7 @@ def _read_graph_workflow_attempts(
 ) -> tuple[WorkflowStepAttempt, ...]:
     """Read Graph step attempts in their persisted candidate order."""
     try:
-        with sqlite3.connect(database_path, timeout=30.0) as connection:
+        with closing(sqlite3.connect(database_path, timeout=30.0)) as connection:
             connection.execute("PRAGMA busy_timeout = 30000")
             rows = connection.execute(
                 "SELECT payload FROM step_attempts WHERE run_id = ? ORDER BY rowid",
@@ -333,7 +334,7 @@ def _read_graph_workflow_run(
 ) -> WorkflowRun:
     """Read the Graph run status for an idempotent completion guard."""
     try:
-        with sqlite3.connect(database_path, timeout=30.0) as connection:
+        with closing(sqlite3.connect(database_path, timeout=30.0)) as connection:
             connection.execute("PRAGMA busy_timeout = 30000")
             row = connection.execute(
                 "SELECT payload FROM runs WHERE run_id = ?",

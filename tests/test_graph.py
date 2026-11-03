@@ -8,10 +8,12 @@ from pathlib import Path
 import pytest
 
 from cosmosalpha.agents import AcceptanceDecision, EvaluationResult
+from cosmosalpha.core import ExperimentConfig
+from cosmosalpha.data.providers import FixedSampleMarketDataProvider
 from cosmosalpha.pipeline.graph import GraphResult
-from cosmosalpha.pipeline.runtime import run_formal_runtime
+from cosmosalpha.pipeline.runtime import RuntimeDependencies, run_formal_runtime
 from cosmosalpha.pipeline.smoke import run_fixed_replay_smoke_loop
-from cosmosalpha.storage import LocalExperimentRepository
+from cosmosalpha.storage import LocalArtifactRepository, LocalExperimentRepository
 from tests.fixtures import graph_runtime_config, mock_config
 
 
@@ -33,7 +35,26 @@ def test_graph_cold_start_duplicate_budget_and_resume(tmp_path: Path) -> None:
 
 
 def test_zero_rank_ic_is_rejected_at_the_production_threshold(tmp_path: Path) -> None:
-    result = run_formal_runtime(mock_config(tmp_path), run_id="rejected", resume=False)
+    # Eight names leave only two residual degrees of freedom after removing
+    # industry and four exposures; LAPACK rounding can then reorder near-tied
+    # residuals. A larger fixed cross-section keeps the zero mean RankIC stable.
+    instruments = tuple(
+        [f"sh{600000 + index:06d}" for index in range(12)]
+        + [f"sz{index + 1:06d}" for index in range(12)]
+    )
+
+    def provider_factory(
+        artifacts: LocalArtifactRepository,
+        _config: ExperimentConfig,
+    ) -> FixedSampleMarketDataProvider:
+        return FixedSampleMarketDataProvider(artifacts, instruments=instruments)
+
+    result = run_formal_runtime(
+        mock_config(tmp_path),
+        run_id="rejected",
+        resume=False,
+        dependencies=RuntimeDependencies(market_data_provider_factory=provider_factory),
+    )
     objects = LocalExperimentRepository(tmp_path / "rejected")
     evaluation = objects.get_object(result.evaluation_result_refs[0], EvaluationResult)
     assert next(

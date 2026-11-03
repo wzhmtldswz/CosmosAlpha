@@ -7,6 +7,7 @@ import importlib.util
 import os
 import re
 import sqlite3
+from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -308,7 +309,7 @@ def _check_resume_state(
         return
     try:
         database_uri = f"file:{workflow_db.resolve()}?mode=ro"
-        with sqlite3.connect(database_uri, uri=True) as connection:
+        with closing(sqlite3.connect(database_uri, uri=True)) as connection:
             exists = connection.execute(
                 "SELECT 1 FROM runs WHERE run_id = ?", (run_id,)
             ).fetchone()
