@@ -2,6 +2,8 @@
 
 [English](README.md) | [中文](README_zh-CN.md)
 
+**Paper:** [arXiv:2611.04555](https://arxiv.org/abs/2611.04555)
+
 **CosmosAlpha** is an LLM-driven alpha-mining framework that organizes the factor
 pool as a **multi-relational graph** of generation lineage, expression-structure
 similarity, and cross-sectional exposure correlation. **Graph Flow** propagates
@@ -175,6 +177,7 @@ Tests use fixed inputs and mocks. Optional Qlib adapter checks are skipped when
 model dependencies are absent. CI runs offline checks on Linux and Windows with
 Python 3.12.
 
-Software citation metadata is in [CITATION.cff](CITATION.cff).
-Source code is licensed under [MIT](LICENSE). Separately obtained datasets retain
-their providers' terms.
+Citation metadata is in [CITATION.cff](CITATION.cff).
+Source code is licensed under [MIT](LICENSE), copyright (c) 2026 Zhan-He Wang.
+The paper and [framework figure](assets/flowchart.png) are excluded from this
+software license. Separately obtained datasets retain their providers' terms.

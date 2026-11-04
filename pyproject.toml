@@ -11,7 +11,7 @@ license = "MIT"
 license-files = ["LICENSE"]
 requires-python = ">=3.12"
 authors = [
-  { name = "CosmosAlpha contributors" },
+  { name = "Zhan-He Wang" },
 ]
 dependencies = [
   "numpy>=1.26",

@@ -2,6 +2,8 @@
 
 [English](README.md) | [中文](README_zh-CN.md)
 
+**论文：** [arXiv:2611.04555](https://arxiv.org/abs/2611.04555)
+
 **CosmosAlpha** 是 LLM 驱动的因子挖掘框架，将因子池组织为融合生成谱系、
 表达式结构相似性与横截面暴露相关性的**多关系图**。框架通过 **Graph Flow**
 传播搜索效用，以 **Pareto 引导选择**权衡质量、繁殖贡献与多样性，指导后续探索。
@@ -162,5 +164,7 @@ python -m black --check --workers 1 .
 测试使用固定输入与 Mock；未安装模型依赖时，明确跳过可选 Qlib 适配测试。
 CI 在 Linux、Windows 的 Python 3.12 环境执行离线检查。
 
-软件引用见 [CITATION.cff](CITATION.cff)。
-源码采用 [MIT 许可证](LICENSE)。另行获取的数据适用各自提供方的条款。
+引用信息见 [CITATION.cff](CITATION.cff)。
+源码采用 [MIT 许可证](LICENSE)，著作权归 Zhan-He Wang（2026）所有。
+论文及[框架流程图](assets/flowchart.png)不在此软件许可证的授权范围内。
+另行获取的数据适用各自提供方的条款。

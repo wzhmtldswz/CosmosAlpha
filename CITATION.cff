@@ -1,8 +1,26 @@
 cff-version: 1.2.0
-message: "Please cite this software when using CosmosAlpha in research."
+message: "If you use CosmosAlpha in research, please cite the paper below."
 type: software
 title: CosmosAlpha
 version: 0.1.0
 authors:
-  - name: CosmosAlpha contributors
+  - family-names: Wang
+    given-names: Zhan-He
 license: MIT
+preferred-citation:
+  type: article
+  title: "CosmosAlpha: Multi-Relational Graph Search with Pareto-Guided Exploration for LLM-Driven Alpha Mining"
+  authors:
+    - family-names: Wang
+      given-names: Zhan-He
+    - family-names: Lang
+      given-names: Zi-Yang
+    - family-names: Li
+      given-names: Yi-Yang
+    - family-names: Lan
+      given-names: Qing-Yu
+    - family-names: Piao
+      given-names: Yun-Song
+  journal: arXiv
+  year: 2026
+  url: https://arxiv.org/abs/2611.04555
