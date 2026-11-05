@@ -181,7 +181,10 @@ def test_runtime_starts_without_market_manifest(
     ).exists()
 
 
-def test_qlib_provider_needs_no_manifest_and_tracks_content(tmp_path: Path) -> None:
+def test_qlib_provider_needs_no_manifest_and_tracks_content(
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
     from types import SimpleNamespace
 
     from cosmosalpha.data import (
@@ -257,7 +260,26 @@ def test_qlib_provider_needs_no_manifest_and_tracks_content(tmp_path: Path) -> N
         instruments=("SH600000",),
         frame_loader=SimpleNamespace(load=load),
     )
-    snapshot = provider.load_snapshot(_market_data_request(config))
+    with caplog.at_level("INFO", logger="cosmosalpha"):
+        snapshot = provider.load_snapshot(_market_data_request(config))
+    messages = [record.getMessage() for record in caplog.records]
+    stages = [
+        "Market data loading",
+        "Mask data loading",
+        "Exposure data loading",
+        "Data alignment and snapshot preparation",
+    ]
+    positions = []
+    for stage in stages:
+        start = messages.index(f"{stage} started")
+        completion = next(
+            i
+            for i, text in enumerate(messages)
+            if text.startswith(f"{stage} completed elapsed=")
+        )
+        assert start < completion
+        positions.extend((start, completion))
+    assert positions == sorted(positions)
     assert not (
         Path(config.qlib.market.provider_uri) / "cosmosalpha_market_manifest.json"
     ).exists()

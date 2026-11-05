@@ -29,6 +29,7 @@ from cosmosalpha.core import (
     stable_sha256,
     to_json,
 )
+from cosmosalpha.core.logging import LOGGER, contextual, progress_stage
 from cosmosalpha.data import DataSnapshot
 from cosmosalpha.evaluation import (
     EVALUATOR_VERSION,
@@ -878,6 +879,7 @@ class GraphController:
             fault_hook=persistence_fault_hook,
         )
 
+    @contextual
     def run(
         self,
         *,
@@ -939,11 +941,23 @@ class GraphController:
             correlation_store = resumed.correlation_store
             attempts_used = snapshot.attempts_used
             next_round_index = snapshot.next_round_index
+            LOGGER.info(
+                "Graph restored nodes=%d attempts=%d/%d next_round=%d",
+                len(nodes),
+                attempts_used,
+                self._config.search.max_expansion_attempts,
+                next_round_index + 1,
+            )
         else:
             resumed = None
             next_round_index = 0
             attempts_used = 0
             seed_mode = self._config.initialization.seed_mode
+            LOGGER.info(
+                "Graph initialization started mode=%s target_nodes=%d",
+                seed_mode,
+                self._config.initialization.initial_node_count,
+            )
             pool_candidates = self._pool.candidates(
                 data_snapshot_id=data_snapshot.snapshot_id,
                 evaluation_protocol_id=self._correlation_protocol.evaluation_protocol_id,
@@ -1032,6 +1046,15 @@ class GraphController:
                 )
             attempts = []
             events = []
+            LOGGER.info(
+                "Graph initialization completed nodes=%d/%d expansion_attempts=0",
+                len(nodes),
+                target_node_count,
+            )
+            if len(nodes) < target_node_count:
+                LOGGER.warning(
+                    "Graph initialization target not reached; continuing with available nodes"
+                )
             correlation_store = self._build_correlation_store(
                 nodes.values(), data_snapshot, round_id=0
             )
@@ -1079,6 +1102,7 @@ class GraphController:
         for round_id in range(
             next_round_index, self._config.search.max_expansion_attempts
         ):
+            round_started = perf_counter()
             pre_archive = archive
             round_reference = self._build_reference_snapshot(
                 pre_archive,
@@ -1118,6 +1142,14 @@ class GraphController:
             if not selection.selected_parent_ids:
                 termination_reason = selection.termination_reason.value
                 break
+            LOGGER.info(
+                "Graph round started index=%d attempts=%d/%d nodes=%d parents=%d",
+                round_id + 1,
+                attempts_used,
+                self._config.search.max_expansion_attempts,
+                len(nodes),
+                len(selection.selected_parent_ids),
+            )
             requests = tuple(
                 self._attempt_request(
                     parent_id=parent_id,
@@ -1255,6 +1287,19 @@ class GraphController:
                 attempts_used=attempts_used,
                 correlation_store=correlation_store,
             )
+            LOGGER.info(
+                "Graph round completed index=%d attempts=%d/%d new_nodes=%d nodes=%d duplicates=%d elapsed=%.2fs",
+                round_id + 1,
+                attempts_used,
+                self._config.search.max_expansion_attempts,
+                len(new_nodes),
+                len(nodes),
+                sum(
+                    "DUPLICATE_ATTEMPT" in attempt.outcome_codes
+                    for attempt in round_attempts
+                ),
+                perf_counter() - round_started,
+            )
             if attempts_used >= self._config.search.max_expansion_attempts:
                 termination_reason = "GLOBAL_ATTEMPT_BUDGET_EXHAUSTED"
                 break
@@ -1276,6 +1321,13 @@ class GraphController:
             attempts_used=attempts_used,
             remaining_budget=self._config.search.max_expansion_attempts - attempts_used,
             termination_reason=termination_reason,
+        )
+        LOGGER.info(
+            "Graph stopped reason=%s attempts=%d/%d nodes=%d",
+            termination_reason,
+            attempts_used,
+            self._config.search.max_expansion_attempts,
+            len(nodes),
         )
         self._objects.put_object(
             GRAPH_RESULT_OBJECT_TYPE,
@@ -1417,6 +1469,13 @@ class GraphController:
                 request,
                 state.last_error_code,
             )
+            LOGGER.warning(
+                "Graph initialization attempt failed attempt=%s reason=%s nodes=%d/%d",
+                request.attempt_id,
+                state.last_error_code,
+                len(state.nodes),
+                state.target,
+            )
             return ()
         result = execution.loop_result
         expressions = (
@@ -1443,6 +1502,12 @@ class GraphController:
             state.duplicate_index.add_node(entry.key, entry.node_id)
             state.nodes[entry.node_id] = batch_nodes[entry.node_id]
             state.factor_refs[entry.node_id] = self._last_factor_refs[entry.node_id]
+        LOGGER.info(
+            "Graph initialization progress attempt=%s nodes=%d/%d",
+            request.attempt_id,
+            len(state.nodes),
+            state.target,
+        )
         return expressions
 
     def _recover_initial_cycle(
@@ -1863,6 +1928,11 @@ class GraphController:
             outcome_codes: list[str] = []
             if execution.loop_result is None:
                 outcome_codes.append(execution.error_code or "LLM_FAILED")
+                LOGGER.warning(
+                    "Graph expansion failed attempt=%s reason=%s",
+                    request.attempt_id,
+                    execution.error_code or "LLM_FAILED",
+                )
                 self._persist_attempt_failure_outcome(
                     request,
                     execution.error_code or "LLM_FAILED",
@@ -2341,7 +2411,8 @@ class GraphController:
         )
         if self._correlation_engine is None:
             return CorrelationStore.empty(self._correlation_protocol)
-        store = self._correlation_engine.build(refs)
+        with progress_stage("Graph correlation preparation"):
+            store = self._correlation_engine.build(refs)
         self._record_correlation_timing(round_id)
         return store
 
@@ -2364,11 +2435,12 @@ class GraphController:
         if not new_refs:
             return store
         all_refs = store.factor_refs + new_refs
-        updated = self._correlation_engine.update(
-            store=store,
-            new_factors=new_refs,
-            all_existing_factors=all_refs,
-        ).store
+        with progress_stage("Graph correlation update"):
+            updated = self._correlation_engine.update(
+                store=store,
+                new_factors=new_refs,
+                all_existing_factors=all_refs,
+            ).store
         self._record_correlation_timing(round_id)
         return updated
 

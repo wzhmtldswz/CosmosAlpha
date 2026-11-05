@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import math
 import multiprocessing
 import sqlite3
@@ -11,6 +12,7 @@ from contextlib import closing
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
+from time import perf_counter
 from typing import Protocol
 
 from cosmosalpha import __version__
@@ -38,6 +40,15 @@ from cosmosalpha.core import (
     from_json_value,
     stable_sha256,
     to_json,
+)
+from cosmosalpha.core.logging import (
+    LOGGER,
+    configure_worker_logging,
+    contextual,
+    error_code,
+    forward_worker_logs,
+    log_context,
+    progress_stage,
 )
 from cosmosalpha.data import (
     MARKET_DATA_FIELDS,
@@ -592,7 +603,16 @@ class CosmosAlphaRuntime:
     def run(self, *, resume: bool) -> FormalRuntimeResult:
         """Load one snapshot and execute the selected top-level architecture."""
         request = _market_data_request(self._config)
-        snapshot = self._data_provider.load_snapshot(request)
+        data_started = perf_counter()
+        with progress_stage("Data preparation", report_completion=False):
+            snapshot = self._data_provider.load_snapshot(request)
+        LOGGER.info(
+            "Data ready stocks=%d dates=%d samples=%d elapsed=%.2fs",
+            snapshot.market_data.instrument_count,
+            snapshot.market_data.date_count,
+            snapshot.market_data.sample_count,
+            perf_counter() - data_started,
+        )
         base_context = _base_context(self._config, snapshot)
         architecture = ARCHITECTURE_REGISTRY.create(self._config.architecture.name)
         if isinstance(architecture, ChainArchitecture):
@@ -620,6 +640,7 @@ class CosmosAlphaRuntime:
         if self._loop is None:
             raise FormalRuntimeError("CHAIN_LOOP_NOT_CONFIGURED")
         if self._config.workflow.max_cycles == 1:
+            LOGGER.info("Chain cycle started index=1/1")
             cycle_result = self._loop.run(
                 run_id=self._run_id,
                 cycle_id="cycle-001",
@@ -648,6 +669,10 @@ class CosmosAlphaRuntime:
                 resume=resume,
             )
             cycle_results = multi_result.cycle_results
+        LOGGER.info(
+            "Chain stopped reason=CYCLE_LIMIT_REACHED cycles=%d",
+            len(cycle_results),
+        )
         data_snapshot_ref = ObjectRef(
             DATA_SNAPSHOT_OBJECT_TYPE,
             snapshot.snapshot_id,
@@ -1297,11 +1322,21 @@ class CosmosAlphaRuntime:
         published_factor_ids: set[str] = set()
         library_refs: list[ObjectRef] = []
         context = multiprocessing.get_context("spawn")
+        LOGGER.info(
+            "Parallel branches started branches=%d workers=%d",
+            len(tasks),
+            min(self._config.runtime.max_workers, len(tasks)),
+        )
         try:
-            with ProcessPoolExecutor(
-                max_workers=min(self._config.runtime.max_workers, len(tasks)),
-                mp_context=context,
-            ) as pool:
+            with (
+                forward_worker_logs(context) as (log_queue, log_level),
+                ProcessPoolExecutor(
+                    max_workers=min(self._config.runtime.max_workers, len(tasks)),
+                    mp_context=context,
+                    initializer=configure_worker_logging,
+                    initargs=(log_queue, log_level),
+                ) as pool,
+            ):
                 futures = {
                     pool.submit(_run_parallel_branch_worker, task): task
                     for task in tasks
@@ -1331,9 +1366,15 @@ class CosmosAlphaRuntime:
                     for future in done:
                         task = futures[future]
                         try:
-                            refs.append(future.result())
+                            outcome_ref = future.result()
                         except Exception as error:
-                            refs.append(self._persist_worker_crash(task, error))
+                            LOGGER.warning(
+                                "Branch worker failed branch=%s error=%s",
+                                _branch_id(task.branch_index),
+                                error_code(error),
+                            )
+                            outcome_ref = self._persist_worker_crash(task, error)
+                        refs.append(outcome_ref)
                 new_refs, new_records = _publish_completed_parallel_cycles(
                     self._run_id,
                     objects=self._objects,
@@ -1365,6 +1406,11 @@ class CosmosAlphaRuntime:
         if not successful:
             metadata.fail_run(self._run_id, completed_at=self._clock())
             raise FormalRuntimeError("PARALLEL_BRANCHES_ALL_FAILED")
+        LOGGER.info(
+            "Parallel branches stopped reason=ALL_BRANCHES_FINISHED completed=%d failed=%d",
+            len(successful),
+            len(outcomes) - len(successful),
+        )
         metadata.complete_run(self._run_id, completed_at=self._clock())
         experiment_refs = tuple(
             ref for outcome in outcomes for ref in outcome.experiment_refs
@@ -1881,24 +1927,26 @@ def _run_parallel_branch_worker(task: _BranchTask) -> ObjectRef:
     )
     branch_id = _branch_id(task.branch_index)
     try:
-        result = MultiCycleController(
-            loop,
-            ContextBuilder(
-                objects,
-            ),
-            workflow_config=task.config.workflow,
-            prompts_config=task.config.prompts,
-        ).run(
-            run_id=task.run_id,
-            cycle_id_prefix=f"{branch_id}-cycle",
-            base_context=branch_context,
-            run_context=task.root_context,
-            data_snapshot=task.data_snapshot,
-            config_snapshot_ref=task.config_snapshot_ref,
-            code_version=__version__,
-            complete_run=False,
-            resume=task.resume,
-        )
+        with log_context(run=task.run_id, branch=branch_id):
+            LOGGER.info("Branch started cycles=%d", task.config.workflow.max_cycles)
+            result = MultiCycleController(
+                loop,
+                ContextBuilder(
+                    objects,
+                ),
+                workflow_config=task.config.workflow,
+                prompts_config=task.config.prompts,
+            ).run(
+                run_id=task.run_id,
+                cycle_id_prefix=f"{branch_id}-cycle",
+                base_context=branch_context,
+                run_context=task.root_context,
+                data_snapshot=task.data_snapshot,
+                config_snapshot_ref=task.config_snapshot_ref,
+                code_version=__version__,
+                complete_run=False,
+                resume=task.resume,
+            )
         experiment_refs = tuple(
             cycle.experiment_ref
             for cycle in result.cycle_results
@@ -1951,6 +1999,18 @@ def _run_parallel_branch_worker(task: _BranchTask) -> ObjectRef:
                 artifact_refs=(task.config_snapshot_ref,),
             ),
             executor=executor,
+        )
+    with log_context(run=task.run_id, branch=branch_id):
+        LOGGER.log(
+            (
+                logging.INFO
+                if outcome.status is BranchStatus.COMPLETED
+                else logging.WARNING
+            ),
+            "Branch finished status=%s cycles=%d reason=%s",
+            outcome.status.value,
+            len(outcome.cycle_ids),
+            "none" if outcome.failure is None else outcome.failure.error_code,
         )
     return objects.put_object(
         "branch_outcome",
@@ -2207,6 +2267,7 @@ def _branch_outcome_ref(outcome: BranchOutcome) -> ObjectRef:
     )
 
 
+@contextual
 def run_formal_runtime(
     config: ExperimentConfig,
     *,

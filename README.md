@@ -132,6 +132,11 @@ python -m cosmosalpha run --config configs/graph_experiment.toml --run-id mine-0
 python -m cosmosalpha run --config configs/graph_experiment.toml --run-id mine-001
 ~~~
 
+Mining reports stages, search progress, factor results, and retries to stderr;
+the final JSON summary stays on stdout. Add `--log-level DEBUG` for details,
+`WARNING` for warnings and errors, or `ERROR` for terminal errors only.
+To save progress logs, append `2> mining.log` to the run command in Bash or PowerShell.
+
 Preflight checks local prerequisites without calling the LLM. The full run uses
 real data and LLM requests. The Graph example uses a cold start, up to 100
 expansion attempts, and 4 workers. To use the built-in seed pool instead, set

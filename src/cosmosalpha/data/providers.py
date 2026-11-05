@@ -15,6 +15,7 @@ from cosmosalpha.core import (
     JsonValue,
     encode_columnar_records,
 )
+from cosmosalpha.core.logging import progress_stage
 from cosmosalpha.data.errors import DataProviderError, DataValidationError
 from cosmosalpha.data.models import (
     DATA_SNAPSHOT_SCHEMA_VERSION,
@@ -264,36 +265,44 @@ class QlibMarketDataProvider:
             ),
         )
         instruments = self._resolve_instruments(request)
-        market_frame = self._load_frame(market_source, instruments, request)
-        source_market_records = _frame_to_source_records(market_frame, market_source)
-        _validate_market_records(source_market_records, request.fields)
-        mask_frame = self._load_frame(mask_source, instruments, request)
-        source_mask_records = _frame_to_source_records(mask_frame, mask_source)
-        mask_records = _build_qlib_mask_records(
-            source_market_records, source_mask_records
-        )
-        exposure_frame = self._load_frame(exposure_source, instruments, request)
-        source_exposure_records = _frame_to_source_records(
-            exposure_frame, exposure_source
-        )
-        exposure_records = _build_qlib_exposure_records(
-            source_market_records, source_exposure_records
-        )
-        market_records = _select_market_fields(source_market_records, request.fields)
-        reason_records = _mask_reason_records(mask_records)
-        return _build_snapshot(
-            artifact_repository=self._artifacts,
-            request=request,
-            market_records=market_records,
-            exposure_records=exposure_records,
-            mask_records=mask_records,
-            provider_alias="qlib",
-            provider_uri_fingerprint=request.dataset_version,
-            trading_calendar_version=self._trading_calendar_version,
-            source_date_range=(request.warmup_start_date, request.end_date),
-            reason_records=reason_records,
-            source_issues=source_issues,
-        )
+        with progress_stage("Market data loading"):
+            market_frame = self._load_frame(market_source, instruments, request)
+            source_market_records = _frame_to_source_records(
+                market_frame, market_source
+            )
+            _validate_market_records(source_market_records, request.fields)
+        with progress_stage("Mask data loading"):
+            mask_frame = self._load_frame(mask_source, instruments, request)
+            source_mask_records = _frame_to_source_records(mask_frame, mask_source)
+            mask_records = _build_qlib_mask_records(
+                source_market_records, source_mask_records
+            )
+        with progress_stage("Exposure data loading"):
+            exposure_frame = self._load_frame(exposure_source, instruments, request)
+            source_exposure_records = _frame_to_source_records(
+                exposure_frame, exposure_source
+            )
+        with progress_stage("Data alignment and snapshot preparation"):
+            exposure_records = _build_qlib_exposure_records(
+                source_market_records, source_exposure_records
+            )
+            market_records = _select_market_fields(
+                source_market_records, request.fields
+            )
+            reason_records = _mask_reason_records(mask_records)
+            return _build_snapshot(
+                artifact_repository=self._artifacts,
+                request=request,
+                market_records=market_records,
+                exposure_records=exposure_records,
+                mask_records=mask_records,
+                provider_alias="qlib",
+                provider_uri_fingerprint=request.dataset_version,
+                trading_calendar_version=self._trading_calendar_version,
+                source_date_range=(request.warmup_start_date, request.end_date),
+                reason_records=reason_records,
+                source_issues=source_issues,
+            )
 
     def _require_source(
         self, source: QlibFeatureSource | None, error_code: str

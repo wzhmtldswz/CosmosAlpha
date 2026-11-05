@@ -7,6 +7,7 @@ import math
 import random
 from collections import deque
 from dataclasses import asdict, dataclass, replace
+from time import perf_counter
 from typing import Protocol
 
 import numpy as np
@@ -27,6 +28,7 @@ from cosmosalpha.core import (
     records_to_aligned_values,
     stable_sha256,
 )
+from cosmosalpha.core.logging import LOGGER, contextual, error_code
 from cosmosalpha.data import DataSnapshot
 from cosmosalpha.evaluation._statistics import mean_daily_cross_sectional_pearson
 from cosmosalpha.factors.expression import FieldCatalog, OperatorCatalog
@@ -318,6 +320,7 @@ class MCTSController:
         self._correlation_dates = tuple(sorted(dates))
         self._correlation_eligible_counts = eligible_counts
 
+    @contextual
     def run(
         self,
         *,
@@ -349,6 +352,8 @@ class MCTSController:
           避免因微小波动错失探索机会。
         - Search ends when budget exhausted OR max_iterations reached.
         """
+        root_started = perf_counter()
+        LOGGER.info("MCTS root preparation started")
         if data_snapshot is not None:
             self._prepare_correlation_context(data_snapshot)
         # P0-1: 树内评分、few-shot 与 diversity 参照均合并共享 FZoo
@@ -370,6 +375,12 @@ class MCTSController:
         tree.all_nodes.append(root)
         self._tree = tree  # 供 _expand 查重使用
         self._admit_to_fzoo(root, tree)
+        LOGGER.info(
+            "MCTS root ready nodes=%d budget=%d elapsed=%.2fs",
+            len(tree.all_nodes),
+            initial_budget,
+            perf_counter() - root_started,
+        )
 
         # 动态预算（论文 §D.4）
         remaining_budget = initial_budget
@@ -381,9 +392,18 @@ class MCTSController:
         stale: set[str] = set()
         self._stale = stale
 
+        completed_rounds = 0
         for iteration in range(1, max_iterations + 1):
             if remaining_budget <= 0:
                 break
+            round_started = perf_counter()
+            LOGGER.info(
+                "MCTS round started index=%d/%d nodes=%d budget=%d",
+                iteration,
+                max_iterations,
+                len(tree.all_nodes),
+                remaining_budget,
+            )
 
             # ── 方案1：高分深挖优先（队列非空跳过 UCT）──
             if deep_dive_queue:
@@ -399,6 +419,13 @@ class MCTSController:
                 num_candidates = 3 if budget_free else 2
 
             for candidate_idx in range(num_candidates):
+                LOGGER.info(
+                    "MCTS expansion started round=%d candidate=%d/%d parent=%s",
+                    iteration,
+                    candidate_idx + 1,
+                    num_candidates,
+                    selected.factor_id[:12],
+                )
                 child = self._expand(
                     parent=selected,
                     data_snapshot=data_snapshot,
@@ -410,6 +437,11 @@ class MCTSController:
                     candidate_index=candidate_idx,
                 )
                 if child is None:
+                    LOGGER.info(
+                        "MCTS expansion skipped round=%d candidate=%d reason=NO_NEW_NODE",
+                        iteration,
+                        candidate_idx + 1,
+                    )
                     continue
                 tree.add_node(selected, child)
                 self._backpropagate(child)
@@ -456,8 +488,24 @@ class MCTSController:
 
                 if remaining_budget <= 0:
                     break
+            completed_rounds += 1
+            LOGGER.info(
+                "MCTS round completed index=%d/%d nodes=%d budget=%d elapsed=%.2fs",
+                iteration,
+                max_iterations,
+                len(tree.all_nodes),
+                remaining_budget,
+                perf_counter() - round_started,
+            )
 
         self._persist_tree(tree, persist_id)
+        LOGGER.info(
+            "MCTS stopped reason=%s rounds=%d nodes=%d budget=%d",
+            "BUDGET_EXHAUSTED" if remaining_budget <= 0 else "ITERATION_LIMIT_REACHED",
+            completed_rounds,
+            len(tree.all_nodes),
+            remaining_budget,
+        )
         actual_iterations = iteration  # 捕获循环终止时的实际值
         return MCTSResult(
             tree=tree,
@@ -972,11 +1020,23 @@ class MCTSController:
         )
 
         # 4. LLM 生成
-        return generate_portrait(
+        started = perf_counter()
+        LOGGER.info("MCTS factor portrait started parent=%s", parent.factor_id[:12])
+        portrait = generate_portrait(
             self._llm,
             prompt_text,
             model_alias=self._model_alias,
         )
+        if portrait is None:
+            LOGGER.warning(
+                "MCTS factor portrait unavailable; using suggestion fallback elapsed=%.2fs",
+                perf_counter() - started,
+            )
+        else:
+            LOGGER.info(
+                "MCTS factor portrait completed elapsed=%.2fs", perf_counter() - started
+            )
+        return portrait
 
     def _sample_few_shot_paper(
         self,
@@ -1045,6 +1105,8 @@ class MCTSController:
         """论文 §3.2: ask LLM for targeted improvement suggestions."""
         if self._llm is None:
             return []
+        started = perf_counter()
+        LOGGER.info("MCTS suggestion started parent=%s", parent.factor_id[:12])
         dim_scores = ""
         if parent.stability is not None:
             dim_scores = (
@@ -1086,8 +1148,19 @@ class MCTSController:
                     response_format="json_object",
                 )
             )
-            return _parse_suggestions(response.content)
-        except Exception:
+            suggestions = _parse_suggestions(response.content)
+            LOGGER.info(
+                "MCTS suggestion completed count=%d elapsed=%.2fs",
+                len(suggestions),
+                perf_counter() - started,
+            )
+            return suggestions
+        except Exception as error:
+            LOGGER.warning(
+                "MCTS suggestion failed error=%s; continuing without suggestions elapsed=%.2fs",
+                error_code(error),
+                perf_counter() - started,
+            )
             return []
 
     def _expand(
@@ -1275,7 +1348,10 @@ class MCTSController:
                 # expand 每候选先由 LLM 产出研究假设，再进入 FactorDesign。
                 skip_feedback=False,
             )
-        except Exception:
+        except Exception as error:
+            LOGGER.warning(
+                "MCTS candidate failed error=%s; continuing search", error_code(error)
+            )
             return None
         scores = _extract_eval_scores(loop_result, self._objects)
         expression = _extract_expression(loop_result, self._objects)

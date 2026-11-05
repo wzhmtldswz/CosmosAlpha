@@ -124,6 +124,11 @@ python -m cosmosalpha run --config configs/graph_experiment.toml --run-id mine-0
 python -m cosmosalpha run --config configs/graph_experiment.toml --run-id mine-001
 ~~~
 
+挖掘过程的阶段、搜索进度、因子结果和重试信息默认输出到 stderr，最终 JSON
+汇总保留在 stdout。添加 `--log-level DEBUG` 查看细节，`WARNING` 只显示警告和错误，
+`ERROR` 只显示终止性错误。Bash 和 PowerShell 均可在运行命令末尾添加
+`2> mining.log` 保存过程日志。
+
 预检只检查本地前置条件，不调用 LLM；正式运行会读取真实数据并请求 LLM。
 默认 Graph 使用冷启动，最多 100 次扩展尝试、4 个 Worker。
 如需使用内置种子池热启动，在 `graph.initialization` 中将 `seed_mode`

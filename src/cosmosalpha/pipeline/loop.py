@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import json
+import logging
 import math
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from time import perf_counter
 from typing import Protocol
 
 from cosmosalpha.agents import (
@@ -43,6 +45,7 @@ from cosmosalpha.core import (
     SerializationError,
     stable_sha256,
 )
+from cosmosalpha.core.logging import LOGGER, contextual, log_context, progress_stage
 from cosmosalpha.data import DataSnapshot
 from cosmosalpha.evaluation import (
     AcceptancePolicy,
@@ -556,6 +559,7 @@ class CosmosAlphaLoop:
             )
         setter(provider)
 
+    @contextual
     def run(
         self,
         *,
@@ -709,6 +713,7 @@ class CosmosAlphaLoop:
             run_id, cycle_id, "experiment_publish"
         )
         if resume and completed_attempt is not None and self._factor_library is None:
+            LOGGER.debug("Cycle restored from completed experiment")
             experiment_ref = _only_object_ref(completed_attempt)
             experiment = self._objects.get_experiment(experiment_ref)
             if complete_run:
@@ -924,6 +929,25 @@ class CosmosAlphaLoop:
                 batch_gate=pre_calculation_batch_gate,
                 allow_repair=fixed_factor_design_drafts is None,
             )
+        for candidate in candidate_results:
+            if candidate.failure is not None or candidate.pre_calculation_gate_reason:
+                LOGGER.log(
+                    logging.WARNING if candidate.failure is not None else logging.INFO,
+                    "Candidate %s id=%s reason=%s",
+                    candidate.status.value,
+                    (candidate.factor_ref or candidate.proposal_ref).object_id,
+                    (
+                        candidate.failure.error_code
+                        if candidate.failure is not None
+                        else candidate.pre_calculation_gate_reason
+                    ),
+                )
+        for failure in expression_failures:
+            LOGGER.warning(
+                "Expression candidate failed stage=%s reason=%s",
+                failure.stage,
+                failure.error_code,
+            )
         feedback_ref: ObjectRef | None = None
         lesson_ref: ObjectRef | None = None
         if not skip_feedback:
@@ -1041,6 +1065,14 @@ class CosmosAlphaLoop:
         self._metadata.complete_cycle(run_id, cycle_id, completed_at=self._clock())
         if complete_run:
             self._metadata.complete_run(run_id, completed_at=self._clock())
+        LOGGER.info(
+            "Cycle completed accepted=%d rejected=%d failed=%d resumed=%s",
+            sum(c.status is ExperimentStatus.ACCEPTED for c in candidate_results),
+            sum(c.status is ExperimentStatus.REJECTED for c in candidate_results),
+            sum(c.status is ExperimentStatus.FAILED for c in candidate_results)
+            + len(expression_failures),
+            self._reused_step or self._recovered_step,
+        )
         return CosmosAlphaLoopResult(
             run_id=run_id,
             cycle_id=cycle_id,
@@ -1268,9 +1300,31 @@ class CosmosAlphaLoop:
         )
         if attempt.status is WorkflowStepStatus.SUCCEEDED:
             self._reused_step = True
+            LOGGER.debug("Step restored step=%s", step_id)
             return load(attempt)
+        step_kind = "repair" if ":repair:" in step_id else step_id.rsplit(":", 1)[-1]
+        labels = {
+            "hypothesis": "Hypothesis generation",
+            "factor_design_generation": "Factor design",
+            "expression": "Expression generation",
+            "repair": "Expression repair",
+            "forward_return": "Forward return calculation",
+            "calculation": "Factor calculation",
+            "preprocessing": "Factor neutralization",
+            "evaluation": "Factor evaluation",
+            "feedback": "Research feedback",
+        }
+        level = logging.INFO if step_kind in labels else logging.DEBUG
         try:
-            output, object_refs, artifact_refs = operation()
+            with (
+                log_context(step=step_id),
+                progress_stage(
+                    labels.get(step_kind, step_kind),
+                    level=level,
+                    report_completion=step_kind != "evaluation",
+                ),
+            ):
+                output, object_refs, artifact_refs = operation()
         except Exception as error:
             self._metadata.fail_attempt(
                 attempt,
@@ -1873,6 +1927,7 @@ class CosmosAlphaLoop:
             _content_scoped_id("preprocessing", preprocessing_result),
             preprocessing_result.schema_version,
         )
+        evaluation_started = perf_counter()
         evaluation_result = self._execute_candidate_step(
             run_id=run_id,
             cycle_id=cycle_id,
@@ -1912,6 +1967,23 @@ class CosmosAlphaLoop:
             ACCEPTANCE_DECISION_OBJECT_TYPE,
             _content_scoped_id("decision", decision),
             decision.schema_version,
+        )
+        rank_ic = next(
+            (m.value for m in evaluation_result.metrics if m.name == "rank_ic_mean"),
+            None,
+        )
+        LOGGER.debug(
+            "Factor identity id=%s object=%s",
+            factor_spec.factor_id,
+            factor_ref.object_id,
+        )
+        LOGGER.info(
+            "Factor evaluation completed factor=%s rank_ic=%s status=%s reason=%s elapsed=%.2fs",
+            factor_spec.factor_id[:12],
+            "unavailable" if rank_ic is None else f"{rank_ic:.5f}",
+            "accepted" if decision.accepted else "rejected",
+            ",".join(decision.reason_codes) or "none",
+            perf_counter() - evaluation_started,
         )
         return CandidateRunResult(
             proposal_ref=proposal_ref,

@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from cosmosalpha.agents import ResearchContext
 from cosmosalpha.core import ArtifactRef, CoreValidationError
 from cosmosalpha.core.config import PromptsConfig, WorkflowConfig
+from cosmosalpha.core.logging import LOGGER, log_context
 from cosmosalpha.data import DataSnapshot
 from cosmosalpha.pipeline.context import ContextBuilder, ContextBuildResult
 from cosmosalpha.pipeline.loop import CosmosAlphaLoop, CosmosAlphaLoopResult
@@ -99,6 +100,12 @@ class MultiCycleController:
         context_results: list[ContextBuildResult] = []
         for index in range(self._workflow_config.max_cycles):
             cycle_id = f"{cycle_id_prefix}-{index + 1:03d}"
+            with log_context(cycle=cycle_id):
+                LOGGER.info(
+                    "Cycle started index=%d/%d",
+                    index + 1,
+                    self._workflow_config.max_cycles,
+                )
             context_result = self._context_builder.build(
                 base_context,
                 data_version=data_snapshot.snapshot_id,

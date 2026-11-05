@@ -11,6 +11,7 @@ from typing import Protocol
 
 from cosmosalpha.core import CoreValidationError, JsonScalar, ObjectRef, stable_sha256
 from cosmosalpha.core.config import LLMConfig, PromptsConfig
+from cosmosalpha.core.logging import LOGGER, error_code
 from cosmosalpha.llm.client import LLMClient, LLMRequest, LLMResponseMetadata
 from cosmosalpha.llm.errors import LLMClientError, LLMOutputError
 from cosmosalpha.llm.prompts import PromptMessage
@@ -178,6 +179,12 @@ class AuditedLLMExecutor:
         total_retries = 0
         while True:
             attempt += 1
+            LOGGER.debug(
+                "LLM request started prompt=%s attempt=%d model=%s",
+                active_request.prompt.prompt_id,
+                attempt,
+                active_request.model_alias,
+            )
             parameters = self._parameters(active_request, execution_id)
             self._persist_record(
                 self.recorder.record_started(
@@ -232,6 +239,12 @@ class AuditedLLMExecutor:
                     )
                 )
                 if not retryable:
+                    LOGGER.warning(
+                        "LLM request stopped prompt=%s attempt=%d error=%s retryable=false",
+                        active_request.prompt.prompt_id,
+                        attempt,
+                        error_code(error),
+                    )
                     if retry_kind == "format":
                         raise LLMOutputError(
                             "LLM_FORMAT_RETRY_EXHAUSTED: provider response format failed"
@@ -239,6 +252,14 @@ class AuditedLLMExecutor:
                     raise
                 retries_by_kind[retry_kind] += 1
                 total_retries += 1
+                LOGGER.warning(
+                    "LLM retry prompt=%s attempt=%d retry=%d reason=%s wait=%.2fs",
+                    active_request.prompt.prompt_id,
+                    attempt,
+                    total_retries,
+                    error_code(error),
+                    retry_delay,
+                )
                 if retry_kind == "format":
                     active_request = _with_format_retry_feedback(
                         active_request,
@@ -249,6 +270,11 @@ class AuditedLLMExecutor:
                     self.sleep(retry_delay)
                 continue
             except CoreValidationError as error:
+                LOGGER.warning(
+                    "LLM request stopped prompt=%s attempt=%d error=LLM_CLIENT_RESPONSE_INVALID retryable=false",
+                    active_request.prompt.prompt_id,
+                    attempt,
+                )
                 # A local client-contract failure (for example an invalid
                 # response object) must never be relabeled as a provider empty
                 # body and blindly retried.  Record it as a distinct
@@ -312,11 +338,23 @@ class AuditedLLMExecutor:
                 )
                 self._persist_record(record)
                 if not retryable:
+                    LOGGER.warning(
+                        "LLM request stopped prompt=%s attempt=%d error=LLM_FORMAT_RETRY_EXHAUSTED retryable=false",
+                        active_request.prompt.prompt_id,
+                        attempt,
+                    )
                     raise LLMOutputError(
                         "LLM_FORMAT_RETRY_EXHAUSTED: strict output parsing failed"
                     ) from error
                 retries_by_kind["format"] += 1
                 total_retries += 1
+                LOGGER.warning(
+                    "LLM retry prompt=%s attempt=%d retry=%d reason=LLM_OUTPUT_FORMAT wait=%.2fs",
+                    active_request.prompt.prompt_id,
+                    attempt,
+                    total_retries,
+                    retry_delay,
+                )
                 active_request = _with_format_retry_feedback(
                     active_request,
                     str(error),
@@ -335,6 +373,14 @@ class AuditedLLMExecutor:
                     step_id=f"llm:{active_request.prompt.prompt_id}",
                     elapsed_milliseconds=elapsed_milliseconds,
                 )
+            )
+            LOGGER.debug(
+                "LLM request completed prompt=%s attempt=%d elapsed_ms=%d input_tokens=%d output_tokens=%d",
+                active_request.prompt.prompt_id,
+                attempt,
+                elapsed_milliseconds,
+                response.input_tokens,
+                response.output_tokens,
             )
             return parsed
 

@@ -7,9 +7,11 @@ import os
 from collections.abc import Sequence
 from dataclasses import replace
 from tempfile import TemporaryDirectory
+from time import perf_counter
 
 from cosmosalpha import __version__
 from cosmosalpha.core import CoreValidationError, load_experiment_config, to_json
+from cosmosalpha.core.logging import LOGGER, console_logging, error_code, log_context
 from cosmosalpha.data import run_qlib_snapshot_smoke
 from cosmosalpha.pipeline.llm_smoke import run_live_llm_smoke
 from cosmosalpha.pipeline.mcts.live import run_mcts_live, run_mcts_live_multi
@@ -149,6 +151,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--preflight-only",
         action="store_true",
         help="validate configuration without assembling or running the chain",
+    )
+    run_parser.add_argument(
+        "--log-level",
+        choices=("DEBUG", "INFO", "WARNING", "ERROR"),
+        default="INFO",
+        help="terminal progress level on stderr (default: INFO)",
     )
     lightgbm_parser = commands.add_parser(
         "train-lightgbm",
@@ -590,23 +598,44 @@ def _run_command(args: object) -> int:
     if not report.ready or args.preflight_only:
         print(report.summary_json())
         return 0 if report.ready else 2
-    try:
-        result = run_formal_runtime(
-            config,
-            run_id=args.run_id,
-            resume=args.resume,
+    with console_logging(args.log_level), log_context(run=args.run_id):
+        started = perf_counter()
+        LOGGER.info(
+            "Mining started architecture=%s resume=%s output=%s",
+            config.architecture.name,
+            args.resume,
+            os.path.join(os.path.expanduser(config.storage.root), args.run_id),
         )
-    except Exception as error:
-        print(
-            to_json(
-                {
-                    "error_code": "RUNTIME_FAILED",
-                    "message": str(error) or error.__class__.__name__,
-                    "run_id": args.run_id,
-                    "status": "failed",
-                }
+        try:
+            result = run_formal_runtime(
+                config,
+                run_id=args.run_id,
+                resume=args.resume,
             )
+        except Exception as error:
+            LOGGER.error(
+                "Mining terminated error=%s elapsed=%.2fs",
+                error_code(error),
+                perf_counter() - started,
+            )
+            print(
+                to_json(
+                    {
+                        "error_code": "RUNTIME_FAILED",
+                        "message": str(error) or error.__class__.__name__,
+                        "run_id": args.run_id,
+                        "status": "failed",
+                    }
+                )
+            )
+            return 1
+        LOGGER.info(
+            "Mining completed architecture=%s cycles=%d evaluations=%d elapsed=%.2fs output=%s",
+            config.architecture.name,
+            len(result.experiment_record_refs),
+            len(result.evaluation_result_refs),
+            perf_counter() - started,
+            result.run_directory,
         )
-        return 1
     print(result.summary_json())
     return 0
